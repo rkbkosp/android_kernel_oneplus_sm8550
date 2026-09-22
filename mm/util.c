@@ -618,6 +618,8 @@ void *kvmalloc_node(size_t size, gfp_t flags, int node)
 		kmalloc_flags &= ~__GFP_NOFAIL;
 	}
 
+	trace_android_vh_adjust_kvmalloc_flags(size ? get_order(size) : 0,
+					       &kmalloc_flags);
 	ret = kmalloc_node(size, kmalloc_flags, node);
 
 	/*
