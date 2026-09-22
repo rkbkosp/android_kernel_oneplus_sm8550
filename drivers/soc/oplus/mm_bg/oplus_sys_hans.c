@@ -16,7 +16,11 @@
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 #include <linux/ratelimit.h>
+#include <linux/spinlock.h>
 #include <net/genetlink.h>
+
+#include "mm_bg.h"
+#include "policy.h"
 
 #define OPLUS_HANS_CMD_SLOTS 32
 #define OPLUS_HANS_ATTR_MAX 8
@@ -37,6 +41,56 @@ module_param(hans_cmd_event, uint, 0644);
 MODULE_PARM_DESC(hans_cmd_event, "event command id (待真机日志核对)");
 
 static const char oplus_hans_family_name[] __used = "oplus_hans";
+
+static struct oplus_uid_table frozen_uids;
+static DEFINE_SPINLOCK(frozen_lock);
+
+bool oplus_uid_is_frozen(u32 uid)
+{
+	unsigned long flags;
+	bool has;
+
+	spin_lock_irqsave(&frozen_lock, flags);
+	has = oplus_uid_has(&frozen_uids, uid);
+	spin_unlock_irqrestore(&frozen_lock, flags);
+	return has;
+}
+
+static int hans_uid_attr(struct genl_info *info, u32 *uid)
+{
+	struct nlattr *nla;
+	unsigned int id = READ_ONCE(hans_attr_uid);
+
+	if (!info || !uid || id < 1 || id > OPLUS_HANS_ATTR_MAX)
+		return -EINVAL;
+	nla = info->attrs[id];
+	if (!nla || nla_len(nla) < (int)sizeof(u32))
+		return -EINVAL;
+	*uid = nla_get_u32(nla);
+	return 0;
+}
+
+static int hans_add_uid(u32 uid)
+{
+	unsigned long flags;
+	int rc;
+
+	spin_lock_irqsave(&frozen_lock, flags);
+	rc = oplus_uid_add(&frozen_uids, uid);
+	spin_unlock_irqrestore(&frozen_lock, flags);
+	return rc < 0 ? rc : 0;
+}
+
+static int hans_del_uid(u32 uid)
+{
+	unsigned long flags;
+	int rc;
+
+	spin_lock_irqsave(&frozen_lock, flags);
+	rc = oplus_uid_del(&frozen_uids, uid);
+	spin_unlock_irqrestore(&frozen_lock, flags);
+	return rc;
+}
 
 static const struct nla_policy hans_policy[OPLUS_HANS_ATTR_MAX + 1] = {
 	[1] = { .type = NLA_BINARY, .len = sizeof(u32) },
@@ -59,7 +113,22 @@ static const struct genl_multicast_group hans_mcgrps[] = {
 static int hans_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	u8 cmd = info->genlhdr->cmd;
+	u32 uid;
+	int rc;
 
+	if (cmd == READ_ONCE(hans_cmd_add_uid)) {
+		rc = hans_uid_attr(info, &uid);
+		if (rc)
+			return rc;
+		return hans_add_uid(uid);
+	}
+	if (cmd == READ_ONCE(hans_cmd_del_uid) &&
+	    cmd != READ_ONCE(hans_cmd_add_uid)) {
+		rc = hans_uid_attr(info, &uid);
+		if (rc)
+			return rc;
+		return hans_del_uid(uid);
+	}
 	pr_warn_ratelimited("oplus_hans: unknown command %u\n", cmd);
 	return -EOPNOTSUPP;
 }

@@ -34,9 +34,28 @@ static void uid_parse_dedup(struct kunit *test)
 	KUNIT_EXPECT_LT(test, oplus_parse_uids(NULL, out, 8, NULL), 0);
 }
 
+static void frozen_uid_add_dup_del(struct kunit *test)
+{
+	struct oplus_uid_table t;
+	int rc;
+
+	oplus_uid_table_reset(&t);
+	rc = oplus_uid_add(&t, 1000);
+	KUNIT_EXPECT_EQ(test, rc, 0);
+	KUNIT_EXPECT_TRUE(test, oplus_uid_has(&t, 1000));
+	rc = oplus_uid_add(&t, 1000);
+	KUNIT_EXPECT_EQ(test, rc, 1);
+	KUNIT_EXPECT_EQ(test, t.n, 1);
+	rc = oplus_uid_del(&t, 1000);
+	KUNIT_EXPECT_EQ(test, rc, 0);
+	KUNIT_EXPECT_FALSE(test, oplus_uid_has(&t, 1000));
+	KUNIT_EXPECT_EQ(test, oplus_uid_del(&t, 1000), -ENOENT);
+}
+
 static struct kunit_case oplus_mm_bg_cases[] = {
 	KUNIT_CASE(ux_bit_set_and_clear),
 	KUNIT_CASE(uid_parse_dedup),
+	KUNIT_CASE(frozen_uid_add_dup_del),
 	{}
 };
 
