@@ -3,3 +3,7 @@
 oplus_hans
 /proc/d_oplus_binder/async_ux
 /proc/d_oplus_binder/fg_list_async_first
+/proc/oplus_mem/kswapd_debug
+/proc/oplus_mem/alloc_adjust_ctrl
+/proc/oplus_mem/kswapd_nice
+/proc/oplus_mem/kswapd_load_stat

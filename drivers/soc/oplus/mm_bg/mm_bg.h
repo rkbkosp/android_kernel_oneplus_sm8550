@@ -5,6 +5,9 @@
 #include <linux/types.h>
 
 struct task_struct;
+struct proc_dir_entry;
+
+struct proc_dir_entry *oplus_mem_proc_dir(void);
 
 /*
  * UX bit lives in android_vendor_data1[OPLUS_UX_VENDOR_SLOT].
