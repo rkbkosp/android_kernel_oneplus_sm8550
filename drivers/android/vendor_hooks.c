@@ -600,4 +600,5 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_mm_init);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_adjust_kvmalloc_flags);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_alloc_pages_slowpath_end);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_calc_alloc_flags);
+EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_customize_alloc_gfp);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_rvh_create_worker);

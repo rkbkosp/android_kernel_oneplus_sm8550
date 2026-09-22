@@ -454,6 +454,9 @@ DECLARE_HOOK(android_vh_alloc_pages_slowpath_end,
 DECLARE_HOOK(android_vh_calc_alloc_flags,
 	TP_PROTO(gfp_t gfp_mask, unsigned int *alloc_flags, bool *bypass),
 	TP_ARGS(gfp_mask, alloc_flags, bypass));
+DECLARE_HOOK(android_vh_customize_alloc_gfp,
+	TP_PROTO(gfp_t *alloc_gfp, unsigned int order),
+	TP_ARGS(alloc_gfp, order));
 
 #endif /* _TRACE_HOOK_MM_H */
 
