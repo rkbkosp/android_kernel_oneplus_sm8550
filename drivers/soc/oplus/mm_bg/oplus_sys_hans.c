@@ -16,11 +16,17 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
+#include <linux/netfilter_ipv6.h>
 #include <linux/ratelimit.h>
 #include <linux/sched.h>
+#include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/uidgid.h>
 #include <net/genetlink.h>
+#include <net/inet_sock.h>
+#include <net/sock.h>
 #include <trace/hooks/binder.h>
 #include <trace/hooks/signal.h>
 
@@ -190,6 +196,45 @@ static void hans_on_preset(void *data, struct hlist_head *hhead,
 	mutex_unlock(lock);
 }
 
+static atomic64_t hans_pkt_count;
+
+static unsigned int hans_nf_hook(void *priv, struct sk_buff *skb,
+				 const struct nf_hook_state *state)
+{
+	struct sock *sk;
+	u32 uid;
+
+	(void)priv;
+	(void)state;
+	if (!skb)
+		return NF_ACCEPT;
+	sk = skb_to_full_sk(skb);
+	if (!sk || !sk_fullsock(sk))
+		return NF_ACCEPT;
+	uid = from_kuid(&init_user_ns, sock_i_uid(sk));
+	if (!oplus_uid_is_frozen(uid))
+		return NF_ACCEPT;
+	atomic64_inc(&hans_pkt_count);
+	hans_send_event("packet", uid, -1);
+	return NF_ACCEPT;
+}
+
+/* Count and report only. Never drop. "packet" is an unverified event name. */
+static const struct nf_hook_ops hans_nf_ops[] = {
+	{
+		.hook = hans_nf_hook,
+		.pf = NFPROTO_IPV4,
+		.hooknum = NF_INET_LOCAL_IN,
+		.priority = NF_IP_PRI_LAST,
+	},
+	{
+		.hook = hans_nf_hook,
+		.pf = NFPROTO_IPV6,
+		.hooknum = NF_INET_LOCAL_IN,
+		.priority = NF_IP6_PRI_LAST,
+	},
+};
+
 static void hans_on_sig(void *data, int sig, struct task_struct *killer,
 			struct task_struct *dst)
 {
@@ -294,6 +339,10 @@ static int __init oplus_hans_init(void)
 	WARN_ON(register_trace_android_vh_binder_reply(hans_on_reply, NULL));
 	WARN_ON(register_trace_android_vh_binder_preset(hans_on_preset, NULL));
 	WARN_ON(register_trace_android_vh_do_send_sig_info(hans_on_sig, NULL));
+	ret = nf_register_net_hooks(&init_net, hans_nf_ops,
+				    ARRAY_SIZE(hans_nf_ops));
+	if (ret)
+		pr_err("oplus_hans: netfilter register failed %d\n", ret);
 	return 0;
 }
 device_initcall(oplus_hans_init);
