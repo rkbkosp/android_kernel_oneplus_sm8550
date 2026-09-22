@@ -10,3 +10,6 @@ oplus_hans
 /sys/module/oplus_bsp_zram_opt/parameters/vm_swappiness
 /sys/module/oplus_bsp_zram_opt/parameters/swappiness_high_threshold
 /sys/module/oplus_bsp_zram_opt/parameters/swappiness_low_threshold
+/proc/oplus_mem/dynamic_swappiness
+/proc/oplus_mem/dynamic_direct_swappiness
+/proc/oplus_mem/swappiness_para
