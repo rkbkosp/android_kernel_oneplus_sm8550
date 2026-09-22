@@ -602,4 +602,5 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_alloc_pages_slowpath_end);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_calc_alloc_flags);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_customize_alloc_gfp);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_skip_cma);
+EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_throttle_direct_reclaim_bypass);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_rvh_create_worker);

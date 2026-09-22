@@ -96,6 +96,9 @@ struct scan_control;
 DECLARE_HOOK(android_vh_skip_cma,
 	TP_PROTO(struct scan_control *sc, bool *bypass),
 	TP_ARGS(sc, bypass));
+DECLARE_HOOK(android_vh_throttle_direct_reclaim_bypass,
+	TP_PROTO(bool *bypass),
+	TP_ARGS(bypass));
 #endif /* _TRACE_HOOK_VMSCAN_H */
 /* This part must be outside protection */
 #include <trace/define_trace.h>
