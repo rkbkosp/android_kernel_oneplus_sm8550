@@ -229,6 +229,9 @@ static bool proc_is_frozen(struct binder_proc *proc)
 	return oplus_uid_is_frozen(uid);
 }
 
+/* Frozen target with a UX transaction queued: ask binder to spawn.
+ * Called with the proc inner lock held, same as the trace site.
+ */
 static void bs_spawn(void *data, struct binder_thread *thread,
 		     struct binder_proc *proc, bool *force_spawn)
 {
