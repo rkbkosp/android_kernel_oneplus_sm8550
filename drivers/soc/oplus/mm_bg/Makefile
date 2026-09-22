@@ -11,4 +11,5 @@ obj-$(CONFIG_OPLUS_MM_BG) += kswapd_opt.o
 obj-$(CONFIG_OPLUS_MM_BG) += oplus_bsp_zram_opt.o
 obj-$(CONFIG_OPLUS_MM_BG) += uxmem_opt.o
 obj-$(CONFIG_OPLUS_MM_BG) += mglru_opt.o
+obj-$(CONFIG_OPLUS_MM_BG) += proactive_compact.o
 obj-$(CONFIG_KUNIT) += policy_kunit.o

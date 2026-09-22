@@ -15,3 +15,4 @@ oplus_hans
 /proc/oplus_mem/swappiness_para
 /proc/oplus_mem/ux_page_pool
 /proc/oplus_mem/mglru_opt_debug
+/proc/oplus_mem/fragmentation_index
