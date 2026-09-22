@@ -3,10 +3,16 @@
  * Order-0 page pool for tasks marked UX by sched_assist.
  * Disabled until /proc/oplus_mem/ux_page_pool is set.
  *
- * alloc_pages_reclaim_bypass may return an already-allocated page.
- * rmqueue_bulk_bypass feeds the per-cpu freelist, so allocated pool
- * pages are not spliced onto that list. The bulk hook only counts UX
- * refills. There is no sched_ext and no __scx_ops_enabled.
+ * android_vh_rmqueue_bulk_bypass is called from get_populated_pcp_list()
+ * with list == &pcp->lists[pindex], the persistent per-cpu freelist, not
+ * a list of pages about to be returned. __rmqueue_pcplist() then does
+ * pcp->count -= 1 << order, and prep_new_page() calls set_page_refcounted()
+ * which requires refcount 0. A pool page from alloc_page() already has
+ * refcount 1. Splicing it on would underflow pcp->count and free_pcppages_bulk()
+ * can __free_one_page() it later (double-free, possibly the wrong zone).
+ * Pool pages are therefore not spliced. They are returned, already prepared,
+ * from alloc_pages_reclaim_bypass and alloc_pages_failure_bypass. The bulk
+ * hook only counts UX refills. There is no sched_ext and no folio.
  */
 
 #include <linux/atomic.h>
@@ -33,7 +39,7 @@ static int ux_pool_enabled;
 static DEFINE_SPINLOCK(ux_pool_lock);
 static struct work_struct ux_refill_work;
 static atomic_t ux_bulk_hits = ATOMIC_INIT(0);
-/* Bulk hook must not push allocated pages onto the pcp freelist. */
+/* Do not push allocated pages onto the pcp freelist. See file comment. */
 
 static const char path_ux_pool[] __used = "/proc/oplus_mem/ux_page_pool";
 
@@ -95,9 +101,10 @@ static void ux_pool_drain(void)
 	}
 }
 
-static void ux_reclaim_bypass(void *data, gfp_t gfp_mask, int order,
-			      int alloc_flags, int migratetype,
-			      struct page **page)
+/* Same prototype for reclaim bypass and failure bypass. */
+static void ux_pool_bypass(void *data, gfp_t gfp_mask, int order,
+			   int alloc_flags, int migratetype,
+			   struct page **page)
 {
 	(void)data;
 	(void)gfp_mask;
@@ -120,6 +127,7 @@ static void ux_rmqueue_bulk(void *data, unsigned int order,
 	(void)order;
 	(void)pcp;
 	(void)migratetype;
+	/* list is the pcp freelist. Do not splice pool pages onto it. */
 	(void)list;
 	if (!READ_ONCE(ux_pool_enabled))
 		return;
@@ -182,7 +190,9 @@ static int __init uxmem_opt_init(void)
 	if (!proc_create("ux_page_pool", 0644, dir, &ux_pool_ops))
 		return -ENOMEM;
 	WARN_ON(register_trace_android_vh_alloc_pages_reclaim_bypass(
-			ux_reclaim_bypass, NULL));
+			ux_pool_bypass, NULL));
+	WARN_ON(register_trace_android_vh_alloc_pages_failure_bypass(
+			ux_pool_bypass, NULL));
 	WARN_ON(register_trace_android_vh_rmqueue_bulk_bypass(
 			ux_rmqueue_bulk, NULL));
 	pr_info("uxmem: %s\n", path_ux_pool);
