@@ -6,4 +6,5 @@ ccflags-y += -I$(srctree)/drivers/android
 
 obj-$(CONFIG_OPLUS_MM_BG) += sched_assist.o
 obj-$(CONFIG_OPLUS_MM_BG) += schedinfo.o
+obj-$(CONFIG_OPLUS_MM_BG) += oplus_sys_hans.o
 obj-$(CONFIG_KUNIT) += policy_kunit.o

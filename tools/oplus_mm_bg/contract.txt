@@ -1,2 +1,3 @@
 /proc/oplus_scheduler/sched_assist/sched_assist_enabled
 /proc/fg_info/fg_uids
+oplus_hans
