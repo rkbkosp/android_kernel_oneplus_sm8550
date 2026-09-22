@@ -3,10 +3,13 @@
  * /proc/iolimit/pid and /proc/iolimit/write_bytes_limit.
  *
  * android_rvh_ctl_dirty_rate fires from balance_dirty_pages_ratelimited(),
- * once per dirtied page. Over-limit tasks sleep with io_schedule_timeout(),
- * the same wait 5.15 blk-throttle uses. gki_defconfig does not enable
- * CONFIG_BLK_DEV_THROTTLING and that code has no per-pid entry point, so
- * the stall stays on this writeback hook. 0x5A clears a limit.
+ * once per dirtied page. Over-limit tasks sleep with io_schedule_timeout().
+ *
+ * block/blk-throttle.c throttles bios per cgroup (struct throtl_grp,
+ * blk_throtl_bio, rbps/wbps/riops/wiops). It has no per-pid entry and no
+ * cumulative byte cap that 0x5A clears, so it cannot express these proc
+ * files. CONFIG_BLK_DEV_THROTTLING stays off. This file does not call it.
+ * The stall decision is oplus_iolimit_charge(), tested without this hook.
  */
 
 #include <linux/fs.h>
@@ -88,10 +91,8 @@ static void iolimit_dirty(void *data, void *unused)
 		return;
 	spin_lock_irqsave(&iolimit_lock, flags);
 	e = iolimit_find(current->pid);
-	if (e && !oplus_iolimit_is_clear(e->limit) && e->limit) {
-		e->written += PAGE_SIZE;
-		over = oplus_iolimit_over(e->written, e->limit);
-	}
+	if (e)
+		over = oplus_iolimit_charge(&e->written, e->limit, PAGE_SIZE);
 	spin_unlock_irqrestore(&iolimit_lock, flags);
 	if (over)
 		io_schedule_timeout(HZ / 50);

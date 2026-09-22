@@ -54,12 +54,37 @@ static void frozen_uid_add_dup_del(struct kunit *test)
 
 static void iolimit_over_and_clear(struct kunit *test)
 {
+	u64 written;
+
+	KUNIT_EXPECT_EQ(test, OPLUS_IOLIMIT_CLEAR, 0x5aULL);
 	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(100, 200));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(200, 200));
 	KUNIT_EXPECT_TRUE(test, oplus_iolimit_over(201, 200));
 	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(1, 0));
 	KUNIT_EXPECT_TRUE(test, oplus_iolimit_is_clear(OPLUS_IOLIMIT_CLEAR));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_is_clear(0));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_is_clear(200));
 	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(9999, OPLUS_IOLIMIT_CLEAR));
 	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(0, 10));
+
+	/* Under and exactly at the limit: charged, not a stall. */
+	written = 0;
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_charge(&written, 200, 100));
+	KUNIT_EXPECT_EQ(test, written, 100ULL);
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_charge(&written, 200, 100));
+	KUNIT_EXPECT_EQ(test, written, 200ULL);
+	/* Past the limit: stall. */
+	KUNIT_EXPECT_TRUE(test, oplus_iolimit_charge(&written, 200, 1));
+	KUNIT_EXPECT_EQ(test, written, 201ULL);
+
+	/* 0x5A clears: no charge and no stall, even if already over. */
+	written = 9999;
+	KUNIT_EXPECT_FALSE(test,
+			   oplus_iolimit_charge(&written, OPLUS_IOLIMIT_CLEAR, 4096));
+	KUNIT_EXPECT_EQ(test, written, 9999ULL);
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_charge(&written, 0, 4096));
+	KUNIT_EXPECT_EQ(test, written, 9999ULL);
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_charge(NULL, 10, 1));
 }
 
 static void swappiness_bucket_select(struct kunit *test)

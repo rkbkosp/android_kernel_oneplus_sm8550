@@ -181,4 +181,17 @@ static inline bool oplus_iolimit_over(u64 written, u64 limit)
 	return written > limit;
 }
 
+/*
+ * Charge bytes and report whether this write should stall.
+ * No trace hook: 0 and 0x5A do not charge and do not stall.
+ * Stall only once written is past the limit.
+ */
+static inline bool oplus_iolimit_charge(u64 *written, u64 limit, u64 bytes)
+{
+	if (!written || !limit || oplus_iolimit_is_clear(limit))
+		return false;
+	*written += bytes;
+	return oplus_iolimit_over(*written, limit);
+}
+
 #endif /* _OPLUS_MM_BG_POLICY_H */
