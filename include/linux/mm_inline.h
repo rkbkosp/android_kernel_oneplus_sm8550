@@ -117,6 +117,8 @@ static inline bool lru_gen_in_fault(void)
 	return current->in_lru_fault;
 }
 
+int lru_gen_set_core_enabled(bool enabled);
+
 static inline int lru_gen_from_seq(unsigned long seq)
 {
 	return seq % MAX_NR_GENS;

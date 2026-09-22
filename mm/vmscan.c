@@ -5237,6 +5237,12 @@ unlock:
 	cgroup_unlock();
 }
 
+int lru_gen_set_core_enabled(bool enabled)
+{
+	lru_gen_change_state(enabled);
+	return lru_gen_enabled() ? 1 : 0;
+}
+
 /******************************************************************************
  *                          sysfs interface
  ******************************************************************************/
