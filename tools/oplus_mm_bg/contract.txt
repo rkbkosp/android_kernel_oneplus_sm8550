@@ -1,3 +1,5 @@
 /proc/oplus_scheduler/sched_assist/sched_assist_enabled
 /proc/fg_info/fg_uids
 oplus_hans
+/proc/d_oplus_binder/async_ux
+/proc/d_oplus_binder/fg_list_async_first
