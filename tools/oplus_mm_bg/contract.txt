@@ -18,3 +18,5 @@ oplus_hans
 /proc/oplus_mem/fragmentation_index
 /proc/iolimit/pid
 /proc/iolimit/write_bytes_limit
+/sys/module/oplus_bsp_aizerofs/parameters/enabled
+/dev/aizerofs
