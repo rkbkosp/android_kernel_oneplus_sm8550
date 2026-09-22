@@ -1,0 +1,1 @@
+/proc/oplus_scheduler/sched_assist/sched_assist_enabled
