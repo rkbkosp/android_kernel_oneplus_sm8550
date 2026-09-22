@@ -22,3 +22,12 @@ oplus_hans
 /dev/aizerofs
 /dev/osvelte
 /sys/kernel/oplus_mm/osvelte/common/compact_memory
+
+# Binder events on the oplus_hans "events" multicast group, sent by
+# hans_send_binder_event(). The attribute ids are placeholders in the same way
+# as the command numbers: 1 = frozen target uid, 2 = event name, 3 = signal
+# number (unused by these), 4 = caller uid, 5 = caller pid, 6 = target pid,
+# 7 = transaction code.
+#   FROZEN_TRANS      oneway transaction aimed at a frozen target
+#   free_buffer_full  frozen target is about to run out of async space
+free_buffer_full

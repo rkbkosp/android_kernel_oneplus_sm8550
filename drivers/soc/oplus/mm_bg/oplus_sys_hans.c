@@ -37,6 +37,19 @@
 #define OPLUS_HANS_CMD_SLOTS 32
 #define OPLUS_HANS_ATTR_MAX 8
 
+/*
+ * Multicast event payload attribute ids. 1..3 are the original uid, event
+ * name and signal number. 4..7 are added for the binder events and are
+ * placeholders in the same way as the command numbers.
+ */
+#define HANS_ATTR_UID 1
+#define HANS_ATTR_EVENT 2
+#define HANS_ATTR_SIG 3
+#define HANS_ATTR_CALLER_UID 4
+#define HANS_ATTR_CALLER_PID 5
+#define HANS_ATTR_TARGET_PID 6
+#define HANS_ATTR_CODE 7
+
 /* 待真机日志核对: placeholder command and attribute numbers. */
 static unsigned int hans_cmd_add_uid = 1;
 static unsigned int hans_cmd_del_uid = 2;
@@ -128,9 +141,9 @@ static void hans_send_event(const char *event, u32 uid, int sig)
 			  READ_ONCE(hans_cmd_event));
 	if (!hdr)
 		goto drop;
-	if (nla_put_string(skb, 2, event) ||
-	    nla_put_u32(skb, 1, uid) ||
-	    (sig >= 0 && nla_put_s32(skb, 3, sig)))
+	if (nla_put_string(skb, HANS_ATTR_EVENT, event) ||
+	    nla_put_u32(skb, HANS_ATTR_UID, uid) ||
+	    (sig >= 0 && nla_put_s32(skb, HANS_ATTR_SIG, sig)))
 		goto drop;
 	genlmsg_end(skb, hdr);
 	rc = genlmsg_multicast(&oplus_hans_family, skb, 0, 0, GFP_ATOMIC);
@@ -139,6 +152,46 @@ static void hans_send_event(const char *event, u32 uid, int sig)
 	if (rc)
 		pr_warn_ratelimited("oplus_hans: event %s uid %u rc %d\n",
 				    event, uid, rc);
+	return;
+drop:
+	nlmsg_free(skb);
+}
+
+/*
+ * Binder event carrying the caller identity and the transaction code on top
+ * of the frozen target uid. caller_uid is the caller at the time of the
+ * transaction, not the uid that owns the caller's process group.
+ */
+static void hans_send_binder_event(const char *event, u32 target_uid, u32 caller_uid,
+				   int caller_pid, int target_pid, unsigned int code)
+{
+	struct sk_buff *skb;
+	void *hdr;
+	int rc;
+
+	if (!__ratelimit(&hans_evt_rs))
+		return;
+	skb = genlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!skb)
+		return;
+	hdr = genlmsg_put(skb, 0, 0, &oplus_hans_family, 0,
+			  READ_ONCE(hans_cmd_event));
+	if (!hdr)
+		goto drop;
+	if (nla_put_u32(skb, HANS_ATTR_UID, target_uid) ||
+	    nla_put_string(skb, HANS_ATTR_EVENT, event) ||
+	    nla_put_u32(skb, HANS_ATTR_CALLER_UID, caller_uid) ||
+	    nla_put_s32(skb, HANS_ATTR_CALLER_PID, caller_pid) ||
+	    nla_put_s32(skb, HANS_ATTR_TARGET_PID, target_pid) ||
+	    nla_put_u32(skb, HANS_ATTR_CODE, code))
+		goto drop;
+	genlmsg_end(skb, hdr);
+	rc = genlmsg_multicast(&oplus_hans_family, skb, 0, 0, GFP_ATOMIC);
+	if (rc == -ESRCH)
+		return;
+	if (rc)
+		pr_warn_ratelimited("oplus_hans: event %s uid %u rc %d\n",
+				    event, target_uid, rc);
 	return;
 drop:
 	nlmsg_free(skb);
@@ -180,6 +233,67 @@ static void hans_on_reply(void *data, struct binder_proc *target_proc,
 	(void)thread;
 	(void)tr;
 	hans_binder_hit(target_proc);
+}
+
+/*
+ * Oneway transaction aimed at a frozen target. Read-only on purpose: this
+ * tree's hook has no deny exit, and *skip only takes part in thread
+ * selection, which the oneway path does not use. Called with the target's
+ * inner proc lock and the node lock held, so the ratelimited GFP_ATOMIC
+ * netlink send is the only thing done here.
+ */
+static void hans_on_proc_transaction_entry(void *data, struct binder_proc *proc,
+					   struct binder_transaction *t,
+					   struct binder_thread **thread,
+					   int node_debug_id, bool pending_async,
+					   bool sync, bool *skip)
+{
+	u32 target_uid;
+
+	(void)data;
+	(void)thread;
+	(void)node_debug_id;
+	(void)pending_async;
+	(void)skip;
+	if (!proc || !t || sync)
+		return;
+	target_uid = hans_proc_uid(proc);
+	if (target_uid == (u32)-1 || !oplus_uid_is_frozen(target_uid))
+		return;
+	hans_send_binder_event("FROZEN_TRANS", target_uid,
+			       from_kuid(&init_user_ns, task_uid(current)),
+			       task_tgid_nr(current), task_tgid_nr(proc->tsk),
+			       t->code);
+}
+
+/*
+ * A frozen target does not drain its async buffer, so a sender that fills it
+ * gets -ENOSPC. Report before that happens so userspace can unfreeze. Runs
+ * under the target's alloc mutex; it takes no other lock than the frozen uid
+ * table's own spinlock.
+ */
+#define HANS_ASYNC_LOW_WATER (64 * 1024)
+
+static void hans_on_alloc_new_buf(void *data, size_t size, size_t *free_async_space,
+				  int is_async)
+{
+	struct binder_alloc *alloc;
+	struct binder_proc *proc;
+	u32 target_uid;
+
+	(void)data;
+	if (!is_async || !free_async_space)
+		return;
+	alloc = container_of(free_async_space, struct binder_alloc, free_async_space);
+	proc = container_of(alloc, struct binder_proc, alloc);
+	target_uid = hans_proc_uid(proc);
+	if (target_uid == (u32)-1 || !oplus_uid_is_frozen(target_uid))
+		return;
+	if (*free_async_space > size + HANS_ASYNC_LOW_WATER)
+		return;
+	hans_send_binder_event("free_buffer_full", target_uid,
+			       from_kuid(&init_user_ns, task_uid(current)),
+			       task_tgid_nr(current), task_tgid_nr(proc->tsk), 0);
 }
 
 static void hans_on_preset(void *data, struct hlist_head *hhead,
@@ -337,6 +451,10 @@ static int __init oplus_hans_init(void)
 		oplus_hans_family.id, oplus_hans_family_name);
 	WARN_ON(register_trace_android_vh_binder_trans(hans_on_trans, NULL));
 	WARN_ON(register_trace_android_vh_binder_reply(hans_on_reply, NULL));
+	WARN_ON(register_trace_android_vh_binder_proc_transaction_entry(
+		hans_on_proc_transaction_entry, NULL));
+	WARN_ON(register_trace_android_vh_binder_alloc_new_buf_locked(
+		hans_on_alloc_new_buf, NULL));
 	WARN_ON(register_trace_android_vh_binder_preset(hans_on_preset, NULL));
 	WARN_ON(register_trace_android_vh_do_send_sig_info(hans_on_sig, NULL));
 	ret = nf_register_net_hooks(&init_net, hans_nf_ops,
