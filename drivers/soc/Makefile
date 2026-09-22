@@ -51,3 +51,7 @@ obj-y += oplus/boot/
 #ifdef OPLUS_FEATURE_DFR
 obj-y += oplus/dfr/
 #endif /* OPLUS_FEATURE_DFR */
+
+#ifdef OPLUS_FEATURE_MM_BG
+obj-$(CONFIG_OPLUS_MM_BG) += oplus/mm_bg/
+#endif /* OPLUS_FEATURE_MM_BG */

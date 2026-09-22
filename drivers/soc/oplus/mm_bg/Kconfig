@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config OPLUS_MM_BG
+	bool "Oplus RAM and background-freeze interfaces"
+	depends on ANDROID_VENDOR_HOOKS
+	depends on ANDROID_VENDOR_OEM_DATA
+	depends on PROC_FS
+	depends on NET
+	depends on INET
+	help
+	  Built-in ColorOS-compatible proc, sysfs and genetlink interfaces
+	  for foreground identity, background freeze and the RAM knobs
+	  userspace already writes. This is not the 6.12 donor module
+	  source and it does not load any .ko.
