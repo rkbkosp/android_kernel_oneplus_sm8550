@@ -92,6 +92,10 @@ DECLARE_HOOK(android_vh_evict_pages_bypass,
 DECLARE_HOOK(android_vh_mglru_should_abort_scan,
 	TP_PROTO(unsigned long *nr_reclaimed),
 	TP_ARGS(nr_reclaimed));
+struct scan_control;
+DECLARE_HOOK(android_vh_skip_cma,
+	TP_PROTO(struct scan_control *sc, bool *bypass),
+	TP_ARGS(sc, bypass));
 #endif /* _TRACE_HOOK_VMSCAN_H */
 /* This part must be outside protection */
 #include <trace/define_trace.h>
