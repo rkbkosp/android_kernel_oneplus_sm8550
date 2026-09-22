@@ -215,13 +215,13 @@ static void bs_restore_priority(void *data, struct binder_transaction *t,
 	 */
 }
 
-static bool proc_is_frozen(struct binder_proc *proc)
+bool oplus_proc_is_frozen(struct binder_proc *proc)
 {
 	u32 uid;
 
 	if (!proc)
 		return false;
-	if (proc->is_frozen)
+	if (READ_ONCE(proc->is_frozen))
 		return true;
 	if (!proc->tsk)
 		return false;
@@ -241,7 +241,7 @@ static void bs_spawn(void *data, struct binder_thread *thread,
 	(void)thread;
 	if (!proc || !force_spawn || !READ_ONCE(oplus_binder_async_ux))
 		return;
-	if (!proc_is_frozen(proc))
+	if (!oplus_proc_is_frozen(proc))
 		return;
 	list_for_each_entry(w, &proc->todo, entry) {
 		struct binder_transaction *t;

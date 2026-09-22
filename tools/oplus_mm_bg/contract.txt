@@ -31,3 +31,8 @@ oplus_hans
 #   FROZEN_TRANS      oneway transaction aimed at a frozen target
 #   free_buffer_full  frozen target is about to run out of async space
 free_buffer_full
+
+# The predicate the oplus_hans event hooks and the binder spawn strategy
+# share. It reads the binder driver's own freeze flag, which the framework
+# sets when it freezes an app, and falls back to the frozen uid table.
+oplus_proc_is_frozen

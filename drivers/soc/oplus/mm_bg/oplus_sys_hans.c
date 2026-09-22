@@ -206,9 +206,12 @@ static u32 hans_proc_uid(struct binder_proc *proc)
 
 static void hans_binder_hit(struct binder_proc *target)
 {
-	u32 uid = hans_proc_uid(target);
+	u32 uid;
 
-	if (uid == (u32)-1 || !oplus_uid_is_frozen(uid))
+	if (!oplus_proc_is_frozen(target))
+		return;
+	uid = hans_proc_uid(target);
+	if (uid == (u32)-1)
 		return;
 	hans_send_event("FROZEN_TRANS", uid, -1);
 }
@@ -239,8 +242,9 @@ static void hans_on_reply(void *data, struct binder_proc *target_proc,
  * Oneway transaction aimed at a frozen target. Read-only on purpose: this
  * tree's hook has no deny exit, and *skip only takes part in thread
  * selection, which the oneway path does not use. Called with the target's
- * inner proc lock and the node lock held, so the ratelimited GFP_ATOMIC
- * netlink send is the only thing done here.
+ * inner proc lock and the node lock held, so the proc freeze flag read is
+ * under its own lock and the ratelimited GFP_ATOMIC netlink send is the only
+ * other thing done here.
  */
 static void hans_on_proc_transaction_entry(void *data, struct binder_proc *proc,
 					   struct binder_transaction *t,
@@ -257,8 +261,10 @@ static void hans_on_proc_transaction_entry(void *data, struct binder_proc *proc,
 	(void)skip;
 	if (!proc || !t || sync)
 		return;
+	if (!oplus_proc_is_frozen(proc))
+		return;
 	target_uid = hans_proc_uid(proc);
-	if (target_uid == (u32)-1 || !oplus_uid_is_frozen(target_uid))
+	if (target_uid == (u32)-1)
 		return;
 	hans_send_binder_event("FROZEN_TRANS", target_uid,
 			       from_kuid(&init_user_ns, task_uid(current)),
@@ -270,7 +276,7 @@ static void hans_on_proc_transaction_entry(void *data, struct binder_proc *proc,
  * A frozen target does not drain its async buffer, so a sender that fills it
  * gets -ENOSPC. Report before that happens so userspace can unfreeze. Runs
  * under the target's alloc mutex; it takes no other lock than the frozen uid
- * table's own spinlock.
+ * table's own spinlock, and reads the proc freeze flag without any lock.
  */
 #define HANS_ASYNC_LOW_WATER (64 * 1024)
 
@@ -286,8 +292,10 @@ static void hans_on_alloc_new_buf(void *data, size_t size, size_t *free_async_sp
 		return;
 	alloc = container_of(free_async_space, struct binder_alloc, free_async_space);
 	proc = container_of(alloc, struct binder_proc, alloc);
+	if (!oplus_proc_is_frozen(proc))
+		return;
 	target_uid = hans_proc_uid(proc);
-	if (target_uid == (u32)-1 || !oplus_uid_is_frozen(target_uid))
+	if (target_uid == (u32)-1)
 		return;
 	if (*free_async_space > size + HANS_ASYNC_LOW_WATER)
 		return;
