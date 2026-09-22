@@ -21,6 +21,8 @@
 
 #include "mm_bg.h"
 
+static void apply_kswapd_nice(int nice);
+
 static int kswapd_debug;
 static int kswapd_nice;
 static int kswapd_load_stat;

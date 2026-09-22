@@ -6,7 +6,6 @@
  * same way compaction_proactiveness_sysctl_handler() does.
  */
 
-#include <linux/compaction.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -16,6 +15,7 @@
 #include <linux/proc_fs.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
+#include <linux/compaction.h>
 
 #include "mm_bg.h"
 

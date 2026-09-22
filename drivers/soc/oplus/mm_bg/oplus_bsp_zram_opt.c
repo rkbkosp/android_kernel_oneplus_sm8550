@@ -238,8 +238,10 @@ static void zram_tune_swappiness(void *data, int *swappiness)
 
 static int __init zram_opt_init(void)
 {
+	struct proc_dir_entry *dir;
+
 	BUILD_BUG_ON(sizeof(zram_algo) < 5);
-	struct proc_dir_entry *dir = oplus_mem_proc_dir();
+	dir = oplus_mem_proc_dir();
 
 	if (!dir)
 		return -ENOMEM;
