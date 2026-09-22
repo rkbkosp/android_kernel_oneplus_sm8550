@@ -52,6 +52,16 @@ static void frozen_uid_add_dup_del(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, oplus_uid_del(&t, 1000), -ENOENT);
 }
 
+static void iolimit_over_and_clear(struct kunit *test)
+{
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(100, 200));
+	KUNIT_EXPECT_TRUE(test, oplus_iolimit_over(201, 200));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(1, 0));
+	KUNIT_EXPECT_TRUE(test, oplus_iolimit_is_clear(OPLUS_IOLIMIT_CLEAR));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(9999, OPLUS_IOLIMIT_CLEAR));
+	KUNIT_EXPECT_FALSE(test, oplus_iolimit_over(0, 10));
+}
+
 static void swappiness_bucket_select(struct kunit *test)
 {
 	struct oplus_swap_buckets b = {
@@ -77,6 +87,7 @@ static struct kunit_case oplus_mm_bg_cases[] = {
 	KUNIT_CASE(uid_parse_dedup),
 	KUNIT_CASE(frozen_uid_add_dup_del),
 	KUNIT_CASE(swappiness_bucket_select),
+	KUNIT_CASE(iolimit_over_and_clear),
 	{}
 };
 

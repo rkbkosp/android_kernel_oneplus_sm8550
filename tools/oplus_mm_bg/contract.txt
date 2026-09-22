@@ -16,3 +16,5 @@ oplus_hans
 /proc/oplus_mem/ux_page_pool
 /proc/oplus_mem/mglru_opt_debug
 /proc/oplus_mem/fragmentation_index
+/proc/iolimit/pid
+/proc/iolimit/write_bytes_limit
