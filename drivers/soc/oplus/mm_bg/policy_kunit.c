@@ -52,10 +52,31 @@ static void frozen_uid_add_dup_del(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, oplus_uid_del(&t, 1000), -ENOENT);
 }
 
+static void swappiness_bucket_select(struct kunit *test)
+{
+	struct oplus_swap_buckets b = {
+		.high_pct = 50,
+		.low_pct = 20,
+		.sw_high = 10,
+		.sw_mid = 50,
+		.sw_low = 100,
+	};
+
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(80, 100, &b, 1), 10);
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(50, 100, &b, 1), 10);
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(30, 100, &b, 1), 50);
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(19, 100, &b, 1), 100);
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(1, 0, &b, 7), 7);
+	b.high_pct = 10;
+	b.low_pct = 40;
+	KUNIT_EXPECT_EQ(test, oplus_swappiness_for_avail(5, 100, &b, 7), 7);
+}
+
 static struct kunit_case oplus_mm_bg_cases[] = {
 	KUNIT_CASE(ux_bit_set_and_clear),
 	KUNIT_CASE(uid_parse_dedup),
 	KUNIT_CASE(frozen_uid_add_dup_del),
+	KUNIT_CASE(swappiness_bucket_select),
 	{}
 };
 

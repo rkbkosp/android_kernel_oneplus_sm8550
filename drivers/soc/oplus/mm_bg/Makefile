@@ -10,4 +10,5 @@ obj-$(CONFIG_OPLUS_MM_BG) += oplus_sys_hans.o
 obj-$(CONFIG_OPLUS_MM_BG) += binder_strategy.o
 obj-$(CONFIG_OPLUS_MM_BG) += oplus_mem_dir.o
 obj-$(CONFIG_OPLUS_MM_BG) += kswapd_opt.o
+obj-$(CONFIG_OPLUS_MM_BG) += oplus_bsp_zram_opt.o
 obj-$(CONFIG_KUNIT) += policy_kunit.o
