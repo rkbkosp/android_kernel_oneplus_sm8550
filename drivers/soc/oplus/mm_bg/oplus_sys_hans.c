@@ -271,10 +271,10 @@ static const struct genl_multicast_group hans_mcgrps[] = {
 static int hans_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	u8 cmd = info->genlhdr->cmd;
-
-	(void)skb;
 	u32 uid;
 	int rc;
+
+	(void)skb;
 
 	if (cmd == READ_ONCE(hans_cmd_add_uid)) {
 		rc = hans_uid_attr(info, &uid);

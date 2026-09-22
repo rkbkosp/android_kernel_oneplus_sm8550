@@ -90,40 +90,54 @@ static ssize_t fg_uids_read(struct file *file, char __user *buf,
 static ssize_t fg_uids_write(struct file *file, const char __user *buf,
 			      size_t len, loff_t *ppos)
 {
-	char *kbuf;
-	u32 parsed[OPLUS_UID_CAP];
-	struct oplus_uid_table neu;
-	struct oplus_uid_table old;
+	char *kbuf = NULL;
+	u32 *parsed = NULL;
+	struct oplus_uid_table *neu = NULL;
+	struct oplus_uid_table *old = NULL;
 	int n, i, dups = 0;
 	unsigned long flags;
+	ssize_t ret = len;
 
 	if (!len || len > PAGE_SIZE)
 		return -EINVAL;
 	kbuf = kmalloc(len + 1, GFP_KERNEL);
-	if (!kbuf)
-		return -ENOMEM;
+	parsed = kmalloc_array(OPLUS_UID_CAP, sizeof(*parsed), GFP_KERNEL);
+	neu = kzalloc(sizeof(*neu), GFP_KERNEL);
+	old = kzalloc(sizeof(*old), GFP_KERNEL);
+	if (!kbuf || !parsed || !neu || !old) {
+		ret = -ENOMEM;
+		goto out;
+	}
 	if (copy_from_user(kbuf, buf, len)) {
-		kfree(kbuf);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto out;
 	}
 	kbuf[len] = '\0';
 	n = oplus_parse_uids(kbuf, parsed, OPLUS_UID_CAP, &dups);
-	kfree(kbuf);
-	if (n < 0)
-		return n;
-	oplus_uid_table_reset(&neu);
+	(void)dups;
+	if (n < 0) {
+		ret = n;
+		goto out;
+	}
 	for (i = 0; i < n; i++) {
-		int rc = oplus_uid_add(&neu, parsed[i]);
+		int rc = oplus_uid_add(neu, parsed[i]);
 
-		if (rc < 0)
-			return rc;
+		if (rc < 0) {
+			ret = rc;
+			goto out;
+		}
 	}
 	spin_lock_irqsave(&fg_lock, flags);
-	old = fg_uids;
-	fg_uids = neu;
+	*old = fg_uids;
+	fg_uids = *neu;
 	spin_unlock_irqrestore(&fg_lock, flags);
-	apply_fg_delta(&old, &neu);
-	return len;
+	apply_fg_delta(old, neu);
+out:
+	kfree(kbuf);
+	kfree(parsed);
+	kfree(neu);
+	kfree(old);
+	return ret;
 }
 
 static const struct proc_ops fg_uids_ops = {
