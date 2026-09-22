@@ -20,3 +20,5 @@ oplus_hans
 /proc/iolimit/write_bytes_limit
 /sys/module/oplus_bsp_aizerofs/parameters/enabled
 /dev/aizerofs
+/dev/osvelte
+/sys/kernel/oplus_mm/osvelte/common/compact_memory
