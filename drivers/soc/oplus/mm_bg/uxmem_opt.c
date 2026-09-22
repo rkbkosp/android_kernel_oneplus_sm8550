@@ -33,6 +33,7 @@ static int ux_pool_enabled;
 static DEFINE_SPINLOCK(ux_pool_lock);
 static struct work_struct ux_refill_work;
 static atomic_t ux_bulk_hits = ATOMIC_INIT(0);
+/* Bulk hook must not push allocated pages onto the pcp freelist. */
 
 static const char path_ux_pool[] __used = "/proc/oplus_mem/ux_page_pool";
 
