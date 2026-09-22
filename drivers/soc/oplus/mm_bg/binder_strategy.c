@@ -183,6 +183,9 @@ static void bs_has_special(void *data, struct binder_thread *thread,
 	}
 }
 
+/* Sync UX caller: raise the target to the caller's nice. binder restores
+ * the saved priority after android_vh_binder_restore_priority.
+ */
 static void bs_set_priority(void *data, struct binder_transaction *t,
 			    struct task_struct *task)
 {
