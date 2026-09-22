@@ -12,13 +12,19 @@
  * anything outside that range before this callback runs.
  */
 
+#include <linux/cred.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 #include <linux/ratelimit.h>
+#include <linux/sched.h>
 #include <linux/spinlock.h>
+#include <linux/uidgid.h>
 #include <net/genetlink.h>
+#include <trace/hooks/binder.h>
+#include <trace/hooks/signal.h>
 
+#include "binder_internal.h"
 #include "mm_bg.h"
 #include "policy.h"
 
@@ -92,6 +98,113 @@ static int hans_del_uid(u32 uid)
 	return rc;
 }
 
+static struct genl_family oplus_hans_family;
+
+static DEFINE_RATELIMIT_STATE(hans_evt_rs, HZ, 64);
+
+/*
+ * Event attribute numbers and the string names are placeholders.
+ * 待真机日志核对. "FROZEN_TRANS" and "signal-freeze" are the names
+ * KERNEL_MODULES.md records for this module. "packet" is not.
+ */
+static void hans_send_event(const char *event, u32 uid, int sig)
+{
+	struct sk_buff *skb;
+	void *hdr;
+	int rc;
+
+	if (!__ratelimit(&hans_evt_rs))
+		return;
+	skb = genlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!skb)
+		return;
+	hdr = genlmsg_put(skb, 0, 0, &oplus_hans_family, 0,
+			  READ_ONCE(hans_cmd_event));
+	if (!hdr)
+		goto drop;
+	if (nla_put_string(skb, 2, event) ||
+	    nla_put_u32(skb, 1, uid) ||
+	    (sig >= 0 && nla_put_s32(skb, 3, sig)))
+		goto drop;
+	genlmsg_end(skb, hdr);
+	rc = genlmsg_multicast(&oplus_hans_family, skb, 0, 0, GFP_ATOMIC);
+	if (rc == -ESRCH)
+		return;
+	if (rc)
+		pr_warn_ratelimited("oplus_hans: event %s uid %u rc %d\n",
+				    event, uid, rc);
+	return;
+drop:
+	nlmsg_free(skb);
+}
+
+static u32 hans_proc_uid(struct binder_proc *proc)
+{
+	if (!proc || !proc->tsk)
+		return (u32)-1;
+	return from_kuid(&init_user_ns, task_uid(proc->tsk));
+}
+
+static void hans_binder_hit(struct binder_proc *target)
+{
+	u32 uid = hans_proc_uid(target);
+
+	if (uid == (u32)-1 || !oplus_uid_is_frozen(uid))
+		return;
+	hans_send_event("FROZEN_TRANS", uid, -1);
+}
+
+static void hans_on_trans(void *data, struct binder_proc *target_proc,
+			  struct binder_proc *proc, struct binder_thread *thread,
+			  struct binder_transaction_data *tr)
+{
+	(void)data;
+	(void)proc;
+	(void)thread;
+	(void)tr;
+	hans_binder_hit(target_proc);
+}
+
+static void hans_on_reply(void *data, struct binder_proc *target_proc,
+			  struct binder_proc *proc, struct binder_thread *thread,
+			  struct binder_transaction_data *tr)
+{
+	(void)data;
+	(void)proc;
+	(void)thread;
+	(void)tr;
+	hans_binder_hit(target_proc);
+}
+
+static void hans_on_preset(void *data, struct hlist_head *hhead,
+			   struct mutex *lock)
+{
+	struct binder_proc *proc;
+
+	(void)data;
+	if (!hhead || !lock)
+		return;
+	mutex_lock(lock);
+	hlist_for_each_entry(proc, hhead, proc_node)
+		hans_binder_hit(proc);
+	mutex_unlock(lock);
+}
+
+static void hans_on_sig(void *data, int sig, struct task_struct *killer,
+			struct task_struct *dst)
+{
+	u32 uid;
+
+	(void)data;
+	(void)killer;
+	if (!dst)
+		return;
+	uid = from_kuid(&init_user_ns, task_uid(dst));
+	if (!oplus_uid_is_frozen(uid))
+		return;
+	hans_send_event("signal-freeze", uid, sig);
+}
+
 static const struct nla_policy hans_policy[OPLUS_HANS_ATTR_MAX + 1] = {
 	[1] = { .type = NLA_BINARY, .len = sizeof(u32) },
 	[2] = { .type = NLA_BINARY, .len = sizeof(u32) },
@@ -113,6 +226,8 @@ static const struct genl_multicast_group hans_mcgrps[] = {
 static int hans_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	u8 cmd = info->genlhdr->cmd;
+
+	(void)skb;
 	u32 uid;
 	int rc;
 
@@ -175,6 +290,10 @@ static int __init oplus_hans_init(void)
 	}
 	pr_info("oplus_hans: family id %d name %s\n",
 		oplus_hans_family.id, oplus_hans_family_name);
+	WARN_ON(register_trace_android_vh_binder_trans(hans_on_trans, NULL));
+	WARN_ON(register_trace_android_vh_binder_reply(hans_on_reply, NULL));
+	WARN_ON(register_trace_android_vh_binder_preset(hans_on_preset, NULL));
+	WARN_ON(register_trace_android_vh_do_send_sig_info(hans_on_sig, NULL));
 	return 0;
 }
 device_initcall(oplus_hans_init);
