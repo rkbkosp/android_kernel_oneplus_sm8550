@@ -13,3 +13,4 @@ oplus_hans
 /proc/oplus_mem/dynamic_swappiness
 /proc/oplus_mem/dynamic_direct_swappiness
 /proc/oplus_mem/swappiness_para
+/proc/oplus_mem/ux_page_pool
