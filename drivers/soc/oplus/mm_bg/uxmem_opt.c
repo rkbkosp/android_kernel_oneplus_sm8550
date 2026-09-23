@@ -16,11 +16,13 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/cpuset.h>
 #include <linux/gfp.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/mm.h>
+#include <linux/nodemask.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
@@ -43,16 +45,26 @@ static atomic_t ux_bulk_hits = ATOMIC_INIT(0);
 
 static const char path_ux_pool[] __used = "/proc/oplus_mem/ux_page_pool";
 
-static struct page *ux_pool_pop(void)
+static struct page *ux_pool_pop(gfp_t gfp_mask)
 {
 	struct page *page = NULL;
 	unsigned long flags;
 
 	spin_lock_irqsave(&ux_pool_lock, flags);
 	if (ux_pool_enabled && !list_empty(&ux_pool)) {
-		page = list_first_entry(&ux_pool, struct page, lru);
-		list_del(&page->lru);
-		ux_pool_count--;
+		struct page *candidate;
+
+		list_for_each_entry(candidate, &ux_pool, lru) {
+			struct zone *zone = page_zone(candidate);
+
+			if (zone_idx(zone) > gfp_zone(gfp_mask) ||
+			    !cpuset_zone_allowed(zone, gfp_mask | __GFP_HARDWALL))
+				continue;
+			page = candidate;
+			list_del(&page->lru);
+			ux_pool_count--;
+			break;
+		}
 	}
 	spin_unlock_irqrestore(&ux_pool_lock, flags);
 	return page;
@@ -106,15 +118,22 @@ static void ux_pool_bypass(void *data, gfp_t gfp_mask, int order,
 			   int alloc_flags, int migratetype,
 			   struct page **page)
 {
+	/* The hook has no preferred node or nodemask. Do not override NUMA policy. */
+	const gfp_t ignored = __GFP_HARDWALL | __GFP_NOWARN;
+
 	(void)data;
-	(void)gfp_mask;
+	/* Watermarks and reclaim priority do not change page compatibility. */
 	(void)alloc_flags;
-	(void)migratetype;
 	if (!READ_ONCE(ux_pool_enabled) || order || !page || *page)
 		return;
 	if (!oplus_task_is_ux(current))
 		return;
-	*page = ux_pool_pop();
+	/* Pool pages are allocated as GFP_KERNEL, without zeroing or accounting. */
+	if ((gfp_mask & ~ignored) != GFP_KERNEL ||
+	    migratetype != gfp_migratetype(GFP_KERNEL) ||
+	    num_online_nodes() != 1)
+		return;
+	*page = ux_pool_pop(gfp_mask);
 	if (*page && READ_ONCE(ux_pool_count) < UX_POOL_MAX / 2)
 		schedule_work(&ux_refill_work);
 }
