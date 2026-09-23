@@ -16,10 +16,12 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
+#include <linux/rcupdate.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
+#include <trace/events/sched.h>
 #include <trace/hooks/mm.h>
 
 #include "policy.h"
@@ -28,6 +30,7 @@
 
 struct iolimit_ent {
 	pid_t pid;
+	u64 start_time;
 	u64 limit;
 	u64 written;
 };
@@ -35,48 +38,94 @@ struct iolimit_ent {
 static struct iolimit_ent iolimits[IOLIMIT_CAP];
 static int iolimit_n;
 static pid_t iolimit_selected;
+static u64 iolimit_selected_start_time;
 static DEFINE_SPINLOCK(iolimit_lock);
 
 static const char path_pid[] __used = "/proc/iolimit/pid";
 static const char path_limit[] __used = "/proc/iolimit/write_bytes_limit";
 
-static struct iolimit_ent *iolimit_find(pid_t pid)
+static struct iolimit_ent *iolimit_find(pid_t pid, u64 start_time)
 {
 	int i;
 
 	for (i = 0; i < iolimit_n; i++) {
-		if (iolimits[i].pid == pid)
+		if (iolimits[i].pid == pid &&
+		    iolimits[i].start_time == start_time)
 			return &iolimits[i];
 	}
 	return NULL;
 }
 
-static struct iolimit_ent *iolimit_get(pid_t pid)
+static struct iolimit_ent *iolimit_get(pid_t pid, u64 start_time)
 {
-	struct iolimit_ent *e = iolimit_find(pid);
+	struct iolimit_ent *e = iolimit_find(pid, start_time);
+	int i;
 
 	if (e)
 		return e;
+	/* A numeric PID may now name a different task. Reuse its old slot. */
+	for (i = 0; i < iolimit_n; i++) {
+		if (iolimits[i].pid == pid) {
+			e = &iolimits[i];
+			goto reset;
+		}
+	}
 	if (iolimit_n >= IOLIMIT_CAP)
 		return NULL;
 	e = &iolimits[iolimit_n++];
+
+reset:
 	e->pid = pid;
+	e->start_time = start_time;
 	e->limit = 0;
 	e->written = 0;
 	return e;
 }
 
-static void iolimit_clear_pid(pid_t pid)
+static void iolimit_clear_pid(pid_t pid, u64 start_time)
 {
 	int i;
 
 	for (i = 0; i < iolimit_n; i++) {
-		if (iolimits[i].pid != pid)
+		if (iolimits[i].pid != pid ||
+		    (start_time && iolimits[i].start_time != start_time))
 			continue;
 		iolimits[i] = iolimits[iolimit_n - 1];
 		iolimit_n--;
 		return;
 	}
+}
+
+/* Called before the task releases its PID, so the slot is reusable on exit. */
+static void iolimit_exit(void *data, struct task_struct *task)
+{
+	unsigned long flags;
+
+	(void)data;
+	spin_lock_irqsave(&iolimit_lock, flags);
+	iolimit_clear_pid(task->pid, task->start_time);
+	if (iolimit_selected == task->pid &&
+	    iolimit_selected_start_time == task->start_time) {
+		iolimit_selected = 0;
+		iolimit_selected_start_time = 0;
+	}
+	spin_unlock_irqrestore(&iolimit_lock, flags);
+}
+
+/* Caller holds iolimit_lock; the RCU read protects the task lookup. */
+static bool iolimit_task_start_time(pid_t pid, u64 *start_time)
+{
+	struct task_struct *task;
+	bool live = false;
+
+	rcu_read_lock();
+	task = find_task_by_vpid(pid);
+	if (task && !(READ_ONCE(task->flags) & PF_EXITING)) {
+		*start_time = task->start_time;
+		live = true;
+	}
+	rcu_read_unlock();
+	return live;
 }
 
 static void iolimit_dirty(void *data, void *unused)
@@ -90,7 +139,7 @@ static void iolimit_dirty(void *data, void *unused)
 	if (!current->pid)
 		return;
 	spin_lock_irqsave(&iolimit_lock, flags);
-	e = iolimit_find(current->pid);
+	e = iolimit_find(current->pid, current->start_time);
 	if (e)
 		over = oplus_iolimit_charge(&e->written, e->limit, PAGE_SIZE);
 	spin_unlock_irqrestore(&iolimit_lock, flags);
@@ -125,6 +174,7 @@ static ssize_t pid_write(struct file *file, const char __user *buf,
 {
 	char kbuf[32];
 	int pid;
+	u64 start_time;
 	unsigned long flags;
 
 	(void)file;
@@ -137,11 +187,16 @@ static ssize_t pid_write(struct file *file, const char __user *buf,
 	if (kstrtoint(skip_spaces(kbuf), 0, &pid) || pid <= 0)
 		return -EINVAL;
 	spin_lock_irqsave(&iolimit_lock, flags);
-	iolimit_selected = pid;
-	if (!iolimit_get(pid)) {
+	if (!iolimit_task_start_time(pid, &start_time)) {
+		spin_unlock_irqrestore(&iolimit_lock, flags);
+		return -ESRCH;
+	}
+	if (!iolimit_get(pid, start_time)) {
 		spin_unlock_irqrestore(&iolimit_lock, flags);
 		return -ENOSPC;
 	}
+	iolimit_selected = pid;
+	iolimit_selected_start_time = start_time;
 	spin_unlock_irqrestore(&iolimit_lock, flags);
 	return len;
 }
@@ -177,6 +232,7 @@ static ssize_t limit_write(struct file *file, const char __user *buf,
 	int pid = 0;
 	int n;
 	unsigned long flags;
+	u64 start_time;
 	struct iolimit_ent *e;
 
 	(void)file;
@@ -201,11 +257,23 @@ static ssize_t limit_write(struct file *file, const char __user *buf,
 		return -EINVAL;
 	}
 	if (limit == OPLUS_IOLIMIT_CLEAR) {
-		iolimit_clear_pid(pid);
+		iolimit_clear_pid(pid, 0);
+		if (iolimit_selected == pid) {
+			iolimit_selected = 0;
+			iolimit_selected_start_time = 0;
+		}
 		spin_unlock_irqrestore(&iolimit_lock, flags);
 		return len;
 	}
-	e = iolimit_get(pid);
+	if (!iolimit_task_start_time(pid, &start_time)) {
+		spin_unlock_irqrestore(&iolimit_lock, flags);
+		return -ESRCH;
+	}
+	if (n == 1 && start_time != iolimit_selected_start_time) {
+		spin_unlock_irqrestore(&iolimit_lock, flags);
+		return -ESRCH;
+	}
+	e = iolimit_get(pid, start_time);
 	if (!e) {
 		spin_unlock_irqrestore(&iolimit_lock, flags);
 		return -ENOSPC;
@@ -213,6 +281,7 @@ static ssize_t limit_write(struct file *file, const char __user *buf,
 	e->limit = limit;
 	e->written = 0;
 	iolimit_selected = pid;
+	iolimit_selected_start_time = start_time;
 	spin_unlock_irqrestore(&iolimit_lock, flags);
 	return len;
 }
@@ -231,14 +300,27 @@ static const struct proc_ops limit_ops = {
 static int __init iolimit_init(void)
 {
 	struct proc_dir_entry *dir;
+	int ret;
+
+	ret = register_trace_sched_process_exit(iolimit_exit, NULL);
+	if (ret)
+		return ret;
 
 	dir = proc_mkdir("iolimit", NULL);
-	if (!dir)
+	if (!dir) {
+		unregister_trace_sched_process_exit(iolimit_exit, NULL);
 		return -ENOMEM;
-	if (!proc_create("pid", 0644, dir, &pid_ops))
+	}
+	if (!proc_create("pid", 0644, dir, &pid_ops)) {
+		remove_proc_subtree("iolimit", NULL);
+		unregister_trace_sched_process_exit(iolimit_exit, NULL);
 		return -ENOMEM;
-	if (!proc_create("write_bytes_limit", 0644, dir, &limit_ops))
+	}
+	if (!proc_create("write_bytes_limit", 0644, dir, &limit_ops)) {
+		remove_proc_subtree("iolimit", NULL);
+		unregister_trace_sched_process_exit(iolimit_exit, NULL);
 		return -ENOMEM;
+	}
 	WARN_ON(register_trace_android_rvh_ctl_dirty_rate(iolimit_dirty, NULL));
 	pr_info("iolimit: %s %s\n", path_pid, path_limit);
 	return 0;
