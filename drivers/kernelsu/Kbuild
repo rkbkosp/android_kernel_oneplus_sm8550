@@ -105,6 +105,16 @@ $(info -- KernelSU-Next Git repo detected at: $(GIT_ROOT))
 endif
 endif
 
+# An explicitly supplied KSU_VERSION wins over everything below. In this tree drivers/kernelsu
+# is part of the kernel repository instead of a separate checkout, so the git discovery above
+# never yields a version and the fallback (1) makes the KernelSU manager reject the kernel with
+# "KernelSU version is too old" next to the userspace ksud version. Pass the version the
+# userspace reports, e.g. `make ... KSU_VERSION=33294`, and keep it in sync when the manager is
+# updated. KSU_VERSION_TAG is display only and can be overridden the same way.
+ifdef KSU_VERSION
+$(info -- KernelSU-Next version (supplied): $(KSU_VERSION))
+ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
+else
 # Calculate version if git version is available
 ifdef KSU_GIT_VERSION_VALID
 # ksu_version: major * 30000 + git version for historical reasons
@@ -114,12 +124,20 @@ ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
 else
 # If there is no .git directory, use default version
 $(warning "KSU_GIT_VERSION not defined! It is better to make KernelSU-Next a git repository!")
-KSU_VERSION_FALLBACK := 1
+# Upstream falls back to 1 here so the manager tells the user to update KernelSU. This tree
+# never has drivers/kernelsu as its own repository, so 1 is what every build would report and the
+# manager rejects the kernel as "too old". Pin the version the userspace side reports instead,
+# and bump it whenever the manager (its ksud) is updated.
+KSU_VERSION_FALLBACK := 33294
 $(info -- KernelSU-Next version fallback: $(KSU_VERSION_FALLBACK))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION_FALLBACK)
 endif
+endif
 
-ifdef KSU_GIT_VERSION_VALID
+ifdef KSU_VERSION_TAG
+$(info -- KernelSU-Next tag (supplied): $(KSU_VERSION_TAG))
+ccflags-y += -DKSU_VERSION_TAG=\"$(KSU_VERSION_TAG)\"
+else ifdef KSU_GIT_VERSION_VALID
 $(eval KSU_VERSION_TAG=$(KSU_GIT_TAG))
 $(info -- KernelSU-Next tag: $(KSU_VERSION_TAG))
 ccflags-y += -DKSU_VERSION_TAG=\"$(KSU_VERSION_TAG)\"
