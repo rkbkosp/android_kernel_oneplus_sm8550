@@ -139,8 +139,10 @@ static bool bs_prefer_ux(struct binder_transaction *t, bool sync)
 	return READ_ONCE(oplus_binder_fg_list_async_first) != 0;
 }
 
-/* Prefer a UX caller by inserting at the head. enqueue uses list_add_tail
- * and only runs when *special_task stays true, so clear it after list_add.
+/* Prefer a UX caller by inserting at the head. Oneway transactions pending
+ * on the same node must retain their send order, so leave node->async_todo
+ * to binder's FIFO insertion. enqueue uses list_add_tail when *special_task
+ * stays true.
  */
 static void bs_special_task(void *data, struct binder_transaction *t,
 			    struct binder_proc *proc, struct binder_thread *thread,
@@ -151,6 +153,9 @@ static void bs_special_task(void *data, struct binder_transaction *t,
 	(void)proc;
 	(void)thread;
 	if (!t || !w || !head || !special_task)
+		return;
+	if (!sync && t->buffer && t->buffer->target_node &&
+	    head == &t->buffer->target_node->async_todo)
 		return;
 	if (!bs_prefer_ux(t, sync))
 		return;
